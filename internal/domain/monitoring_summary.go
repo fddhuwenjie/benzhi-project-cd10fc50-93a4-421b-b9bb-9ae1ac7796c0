@@ -2,19 +2,9 @@ package domain
 
 import (
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
-
-type monitoringZoneTemplate struct {
-	key   string
-	zones []TreatmentZone
-}
-
-const maxMonitoringZoneTemplates = 256
-
-var monitoringZoneTemplates = make([]monitoringZoneTemplate, 0, maxMonitoringZoneTemplates)
 
 type MonitoringSummary struct {
 	CaseID             string                   `json:"case_id"`
@@ -47,7 +37,12 @@ func BuildMonitoringSummary(c *RemediationCase, now time.Time) MonitoringSummary
 	if c.Plan == nil {
 		return result
 	}
-	zones := cachedMonitoringZones(c)
+	// Build a private, per-call copy of the zones so concurrent summaries for
+	// different cases never share or mutate state. Each summary owns its slice
+	// independently, which keeps sorting stable and prevents cross-case
+	// pollution regardless of how many requests run in parallel.
+	zones := make([]TreatmentZone, len(c.Plan.Zones))
+	copy(zones, c.Plan.Zones)
 	sort.Slice(zones, func(i, j int) bool { return zones[i].ZoneID < zones[j].ZoneID })
 	for index := range zones {
 		zone := &zones[index]
@@ -87,22 +82,6 @@ func BuildMonitoringSummary(c *RemediationCase, now time.Time) MonitoringSummary
 	}
 	result.ReviewReady = len(result.Zones) > 0 && result.Passed == len(result.Zones)
 	return result
-}
-
-func cachedMonitoringZones(c *RemediationCase) []TreatmentZone {
-	key := c.CaseID + "\x00" + strconv.FormatInt(c.Revision, 10)
-	for index := range monitoringZoneTemplates {
-		if monitoringZoneTemplates[index].key == key {
-			return monitoringZoneTemplates[index].zones
-		}
-	}
-	zones := append([]TreatmentZone(nil), c.Plan.Zones...)
-	if len(monitoringZoneTemplates) == maxMonitoringZoneTemplates {
-		copy(monitoringZoneTemplates, monitoringZoneTemplates[1:])
-		monitoringZoneTemplates = monitoringZoneTemplates[:maxMonitoringZoneTemplates-1]
-	}
-	monitoringZoneTemplates = append(monitoringZoneTemplates, monitoringZoneTemplate{key: key, zones: zones})
-	return monitoringZoneTemplates[len(monitoringZoneTemplates)-1].zones
 }
 
 func exceededThresholds(zone *TreatmentZone, observations []MonitoringObservation) []string {
