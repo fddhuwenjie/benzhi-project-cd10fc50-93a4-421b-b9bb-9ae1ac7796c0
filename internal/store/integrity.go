@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
@@ -60,7 +62,8 @@ func (s *Store) VerifyIntegrity(ctx context.Context) error {
 		if item.status == domain.StatusArchived {
 			var revision int64
 			var digest string
-			err := s.db.QueryRowContext(ctx, `SELECT terminal_revision,digest FROM archives WHERE case_id=?`, item.id).Scan(&revision, &digest)
+			var manifest []byte
+			err := s.db.QueryRowContext(ctx, `SELECT terminal_revision,digest,manifest_json FROM archives WHERE case_id=?`, item.id).Scan(&revision, &digest, &manifest)
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("已归档案件 %s 缺少归档记录", item.id)
 			}
@@ -69,6 +72,13 @@ func (s *Store) VerifyIntegrity(ctx context.Context) error {
 			}
 			if revision != item.revision || digest == "" || digest != item.digest {
 				return fmt.Errorf("案件 %s 的归档版本或摘要不一致", item.id)
+			}
+			if len(manifest) == 0 {
+				return fmt.Errorf("案件 %s 的归档清单为空", item.id)
+			}
+			sum := sha256.Sum256(manifest)
+			if hex.EncodeToString(sum[:]) != digest {
+				return fmt.Errorf("案件 %s 的归档清单与声明摘要不匹配", item.id)
 			}
 		}
 		if err := s.verifyNormalizedFacts(ctx, item.id); err != nil {
