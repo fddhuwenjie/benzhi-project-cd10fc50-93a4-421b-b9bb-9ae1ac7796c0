@@ -37,28 +37,31 @@ type VerificationReport struct {
 }
 
 func BuildVerificationReport(ctx context.Context, source ReportSource, caseID string) (*VerificationReport, error) {
-	c, err := source.GetCase(context.WithoutCancel(ctx), caseID)
+	c, err := source.GetCase(ctx, caseID)
 	if err != nil {
 		return nil, err
 	}
 	if c.Status != domain.StatusArchived || c.FrozenAt == nil {
 		return nil, domain.Gate("archive_not_ready", "案件尚未归档")
 	}
-	events, err := source.ListEvents(context.WithoutCancel(ctx), caseID)
+	events, err := source.ListEvents(ctx, caseID)
 	if err != nil {
 		return nil, err
 	}
-	facts, err := source.ReadNormalizedFacts(context.WithoutCancel(ctx), caseID)
+	facts, err := source.ReadNormalizedFacts(ctx, caseID)
 	if err != nil {
 		return nil, err
 	}
-	record, archiveErr := source.GetArchive(context.WithoutCancel(ctx), caseID)
+	record, archiveErr := source.GetArchive(ctx, caseID)
 	if archiveErr != nil {
 		var business *domain.BusinessError
 		if !errors.As(archiveErr, &business) || business.Kind != domain.KindNotFound {
 			return nil, archiveErr
 		}
 		record = nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	report := &VerificationReport{CaseID: caseID, Valid: true, TerminalRevision: c.Revision, Checks: []CheckResult{}}
 	appendCheck := func(check CheckResult, pass bool) {

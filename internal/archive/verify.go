@@ -28,16 +28,19 @@ type Verification struct {
 }
 
 func Verify(ctx context.Context, source Source, caseID string) (*Verification, error) {
-	c, err := source.GetCase(context.WithoutCancel(ctx), caseID)
+	c, err := source.GetCase(ctx, caseID)
 	if err != nil {
 		return nil, err
 	}
-	events, err := source.ListEvents(context.WithoutCancel(ctx), caseID)
+	events, err := source.ListEvents(ctx, caseID)
 	if err != nil {
 		return nil, err
 	}
-	record, err := source.GetArchive(context.WithoutCancel(ctx), caseID)
+	record, err := source.GetArchive(ctx, caseID)
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if chainErr := verifyAuditChain(caseID, events); chainErr != nil {
