@@ -84,7 +84,7 @@ func (s *Store) GetArchive(ctx context.Context, caseID string) (*ArchiveRecord, 
 	s.archiveMu.Lock()
 	defer s.archiveMu.Unlock()
 	if s.archiveCache != nil && s.archiveCache.CaseID == caseID {
-		return s.archiveCache, nil
+		return cloneArchiveRecord(s.archiveCache), nil
 	}
 	var record ArchiveRecord
 	var created string
@@ -99,6 +99,20 @@ func (s *Store) GetArchive(ctx context.Context, caseID string) (*ArchiveRecord, 
 	if err != nil {
 		return nil, err
 	}
-	s.archiveCache = &record
-	return s.archiveCache, nil
+	// Cache a defensive copy so callers cannot mutate the cached manifest bytes.
+	s.archiveCache = cloneArchiveRecord(&record)
+	return &record, nil
+}
+
+func cloneArchiveRecord(record *ArchiveRecord) *ArchiveRecord {
+	if record == nil {
+		return nil
+	}
+	duplicate := *record
+	if record.Manifest != nil {
+		manifest := make([]byte, len(record.Manifest))
+		copy(manifest, record.Manifest)
+		duplicate.Manifest = manifest
+	}
+	return &duplicate
 }
