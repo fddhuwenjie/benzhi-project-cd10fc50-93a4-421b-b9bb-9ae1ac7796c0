@@ -10,6 +10,9 @@ import (
 )
 
 func (s *Store) VerifyIntegrity(ctx context.Context) error {
+	if err := s.verifyIdempotencyCache(ctx); err != nil {
+		return err
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT case_id,revision,status,archive_digest FROM cases ORDER BY case_id`)
 	if err != nil {
 		return err
@@ -76,6 +79,38 @@ func (s *Store) VerifyIntegrity(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// verifyIdempotencyCache 拒绝启动时仍存在不可解码、结构非法或案件归属错误的
+// 幂等缓存记录，避免服务以"通过"状态启动后让相同 request_id 的命令重放只能
+// 返回 internal_error。
+func (s *Store) verifyIdempotencyCache(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT case_id,request_id,fingerprint,response_json FROM idempotency ORDER BY case_id,request_id`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var caseID, requestID, fingerprint string
+		var response []byte
+		if err := rows.Scan(&caseID, &requestID, &fingerprint, &response); err != nil {
+			return err
+		}
+		if fingerprint == "" {
+			return domain.NewError(domain.KindCorrupt, "idempotency_corrupt", "案件 %s 的 request_id=%s 幂等记录缺少指纹", caseID, requestID)
+		}
+		var existing domain.RemediationCase
+		if err := json.Unmarshal(response, &existing); err != nil {
+			return domain.NewError(domain.KindCorrupt, "idempotency_corrupt", "案件 %s 的 request_id=%s 幂等响应无法解码: %v", caseID, requestID, err)
+		}
+		if err := domain.ValidateAggregate(&existing); err != nil {
+			return domain.NewError(domain.KindCorrupt, "idempotency_corrupt", "案件 %s 的 request_id=%s 幂等响应聚合无效: %v", caseID, requestID, err)
+		}
+		if existing.CaseID != caseID {
+			return domain.NewError(domain.KindCorrupt, "idempotency_corrupt", "案件 %s 的 request_id=%s 幂等响应归属案件 %s", caseID, requestID, existing.CaseID)
+		}
+	}
+	return rows.Err()
 }
 
 func (s *Store) verifyNormalizedFacts(ctx context.Context, caseID string) error {

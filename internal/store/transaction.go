@@ -32,11 +32,11 @@ func (s *Store) Create(ctx context.Context, c *domain.RemediationCase, draft dom
 	if response, ok, err := readIdempotency(ctx, tx, c.CaseID, requestID, fingerprint); err != nil {
 		return nil, err
 	} else if ok {
-		var existing domain.RemediationCase
-		if err := json.Unmarshal(response, &existing); err != nil {
+		existing, err := decodeIdempotentCase(c.CaseID, requestID, response)
+		if err != nil {
 			return nil, err
 		}
-		return &CommitResult{Case: &existing, Replayed: true}, nil
+		return &CommitResult{Case: existing, Replayed: true}, nil
 	}
 	var exists int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM cases WHERE case_id=?`, c.CaseID).Scan(&exists); err != nil {
@@ -81,12 +81,12 @@ func (s *Store) Commit(ctx context.Context, caseID string, expected int64, reque
 	if response, ok, err := readIdempotency(ctx, tx, caseID, requestID, fingerprint); err != nil {
 		return nil, err
 	} else if ok {
-		var existing domain.RemediationCase
-		if err := json.Unmarshal(response, &existing); err != nil {
+		existing, err := decodeIdempotentCase(caseID, requestID, response)
+		if err != nil {
 			return nil, err
 		}
 		archive, _ := readArchiveTx(ctx, tx, caseID)
-		return &CommitResult{Case: &existing, Replayed: true, Archive: archive}, nil
+		return &CommitResult{Case: existing, Replayed: true, Archive: archive}, nil
 	}
 	c, err := loadCaseTx(ctx, tx, caseID)
 	if err != nil {
