@@ -40,22 +40,23 @@ func (c *RemediationCase) SubmitPlan(actor string, zones []ZonePlanInput, now ti
 		if err := validateZonePlan(in); err != nil {
 			return EventDraft{}, err
 		}
-		if zoneIDs[in.ZoneID] {
-			return EventDraft{}, Invalid("duplicate_zone", "分区 %s 重复", in.ZoneID)
+		zoneID := strings.TrimSpace(in.ZoneID)
+		if zoneIDs[zoneID] {
+			return EventDraft{}, Invalid("duplicate_zone", "分区 %s 重复", zoneID)
 		}
-		zoneIDs[in.ZoneID] = true
+		zoneIDs[zoneID] = true
 		componentIDs := append([]string(nil), in.ComponentIDs...)
 		sort.Strings(componentIDs)
 		for _, id := range componentIDs {
 			if !known[id] {
-				return EventDraft{}, Invalid("unknown_component", "分区 %s 引用了未知构件 %s", in.ZoneID, id)
+				return EventDraft{}, Invalid("unknown_component", "分区 %s 引用了未知构件 %s", zoneID, id)
 			}
 			if previous := assigned[id]; previous != "" {
-				return EventDraft{}, Invalid("component_multiple_zones", "构件 %s 同时属于 %s 和 %s", id, previous, in.ZoneID)
+				return EventDraft{}, Invalid("component_multiple_zones", "构件 %s 同时属于 %s 和 %s", id, previous, zoneID)
 			}
-			assigned[id] = in.ZoneID
+			assigned[id] = zoneID
 		}
-		planZones = append(planZones, TreatmentZone{ZoneID: in.ZoneID, ComponentIDs: componentIDs, Method: strings.TrimSpace(in.Method), ApprovedParameters: cloneFloatMap(in.ApprovedParameters), ProtectionConstraints: append([]string(nil), in.ProtectionConstraints...), ResponsibleID: in.ResponsibleID, Thresholds: in.AcceptanceThresholds, ExecutionStatus: "pending", MonitoringStatus: "pending"})
+		planZones = append(planZones, TreatmentZone{ZoneID: zoneID, ComponentIDs: componentIDs, Method: strings.TrimSpace(in.Method), ApprovedParameters: cloneFloatMap(in.ApprovedParameters), ProtectionConstraints: append([]string(nil), in.ProtectionConstraints...), ResponsibleID: in.ResponsibleID, Thresholds: in.AcceptanceThresholds, ExecutionStatus: "pending", MonitoringStatus: "pending"})
 	}
 	if len(assigned) != len(known) {
 		return EventDraft{}, Gate("plan_coverage_incomplete", "方案必须且只能覆盖全部基线构件")
